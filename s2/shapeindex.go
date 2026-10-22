@@ -775,7 +775,7 @@ func (s *ShapeIndex) Remove(shape Shape) {
 	removed := &removedShape{
 		shapeID:               id,
 		hasInterior:           shape.Dimension() == 2,
-		containsTrackerOrigin: shape.ReferencePoint().Contained,
+		containsTrackerOrigin: containsBruteForce(shape, trackerOrigin()),
 		edges:                 make([]Edge, numEdges),
 	}
 
@@ -1548,5 +1548,17 @@ func maxLevelForEdge(edge Edge) int {
 
 // removeShapeInternal does the actual work for removing a given shape from the index.
 func (s *ShapeIndex) removeShapeInternal(removed *removedShape, allEdges [][]faceEdge, t *tracker) {
-	// TODO(roberts): finish the implementation of this.
+	fe := faceEdge{
+		edgeID:      -1, // Not used or needed for removed edges.
+		shapeID:     removed.shapeID,
+		hasInterior: removed.hasInterior,
+	}
+	if fe.hasInterior {
+		t.addShape(fe.shapeID, removed.containsTrackerOrigin)
+	}
+	for _, edge := range removed.edges {
+		fe.edge = edge
+		fe.MaxLevel = maxLevelForEdge(edge)
+		s.addFaceEdge(fe, allEdges)
+	}
 }
