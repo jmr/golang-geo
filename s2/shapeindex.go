@@ -400,6 +400,8 @@ type tracker struct {
 	// Shape ids saved by saveAndClearStateBefore. The state is never saved
 	// recursively so we don't need to worry about maintaining a stack.
 	savedIDs []int32
+	// As an optimization, isActive is also saved so that restoreStateBefore can deactivate the tracker again in the case where the shapes being added and removed do not have an interior, but some existing shapes do.
+	savedIsActive bool
 }
 
 // newTracker returns a new tracker with the appropriate defaults.
@@ -527,6 +529,7 @@ func (t *tracker) saveAndClearStateBefore(limitShapeID int32) {
 	limit := t.lowerBound(limitShapeID)
 	t.savedIDs = append([]int32(nil), t.shapeIDs[:limit]...)
 	t.shapeIDs = t.shapeIDs[limit:]
+	t.savedIsActive = t.isActive
 }
 
 // restoreStateBefore restores the state previously saved by saveAndClearStateBefore.
@@ -535,11 +538,13 @@ func (t *tracker) restoreStateBefore(limitShapeID int32) {
 	limit := t.lowerBound(limitShapeID)
 	t.shapeIDs = append(append([]int32(nil), t.savedIDs...), t.shapeIDs[limit:]...)
 	t.savedIDs = nil
+	t.isActive = t.savedIsActive
 }
 
-// lowerBound returns the shapeID of the first entry x where x >= shapeID.
-func (t *tracker) lowerBound(shapeID int32) int32 {
-	panic("not implemented")
+// lowerBound returns the index of the first entry x in shapeIDs where x >= shapeID.
+func (t *tracker) lowerBound(shapeID int32) int {
+	i, _ := slices.BinarySearch(t.shapeIDs, shapeID)
+	return i
 }
 
 // removedShape represents a set of edges from the given shape that is queued for removal.

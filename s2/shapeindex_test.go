@@ -748,3 +748,52 @@ func TestShapeIndexRandomUpdates(t *testing.T) {
 		}
 	}
 }
+
+func TestTrackerLowerBound(t *testing.T) {
+	tr := newTracker()
+	for _, id := range []int32{1, 3, 5, 7} {
+		tr.toggleShape(id)
+	}
+	tests := []struct {
+		shapeID int32
+		want    int
+	}{
+		{0, 0},
+		{1, 0},
+		{2, 1},
+		{3, 1},
+		{7, 3},
+		{8, 4},
+	}
+	for _, test := range tests {
+		if got := tr.lowerBound(test.shapeID); got != test.want {
+			t.Errorf("lowerBound(%d) = %d, want %d", test.shapeID, got, test.want)
+		}
+	}
+}
+
+func TestTrackerSaveAndRestoreStateBefore(t *testing.T) {
+	tr := newTracker()
+	for _, id := range []int32{1, 3, 5, 7} {
+		tr.toggleShape(id)
+	}
+	tr.isActive = true
+
+	tr.saveAndClearStateBefore(5)
+	if want := []int32{5, 7}; !slices.Equal(tr.shapeIDs, want) {
+		t.Errorf("after saveAndClearStateBefore(5), shapeIDs = %v, want %v", tr.shapeIDs, want)
+	}
+
+	// Change the state on both sides of the limit.
+	// restoreStateBefore should restore the saved state below the limit and keep the changes above it.
+	tr.toggleShape(2)
+	tr.toggleShape(7)
+	tr.isActive = false
+	tr.restoreStateBefore(5)
+	if want := []int32{1, 3, 5}; !slices.Equal(tr.shapeIDs, want) {
+		t.Errorf("after restoreStateBefore(5), shapeIDs = %v, want %v", tr.shapeIDs, want)
+	}
+	if !tr.isActive {
+		t.Errorf("after restoreStateBefore(5), isActive = false, want true")
+	}
+}
