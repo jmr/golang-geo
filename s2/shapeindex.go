@@ -1445,19 +1445,20 @@ func (s *ShapeIndex) absorbIndexCell(p *PaddedCell, iter *ShapeIndexIterator, ed
 			}
 		}
 		for i := range numClipped {
-			edgeID := clipped.edges[i]
-			edge.edgeID = edgeID
-			edge.edge = shape.Edge(edgeID)
-			edge.MaxLevel = maxLevelForEdge(edge.edge)
-			if edge.hasInterior {
-				t.testEdge(shapeID, edge.edge)
+			// Each edge needs its own faceEdge, since faceEdges holds pointers.
+			fe := *edge
+			fe.edgeID = clipped.edges[i]
+			fe.edge = shape.Edge(fe.edgeID)
+			fe.MaxLevel = maxLevelForEdge(fe.edge)
+			if fe.hasInterior {
+				t.testEdge(shapeID, fe.edge)
 			}
 			var ok bool
-			edge.a, edge.b, ok = ClipToPaddedFace(edge.edge.V0, edge.edge.V1, p.id.Face(), cellPadding)
+			fe.a, fe.b, ok = ClipToPaddedFace(fe.edge.V0, fe.edge.V1, p.id.Face(), cellPadding)
 			if !ok {
 				panic("invariant failure in ShapeIndex")
 			}
-			faceEdges = append(faceEdges, edge)
+			faceEdges = append(faceEdges, &fe)
 		}
 	}
 	// Now create a clippedEdge for each faceEdge, and put them in "new_edges".
