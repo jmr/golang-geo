@@ -626,9 +626,6 @@ func TestShapeIndexRemoveBeforeBuild(t *testing.T) {
 }
 
 func TestShapeIndexUpdateAfterBuild(t *testing.T) {
-	// TODO(jmr): Updating an index that already has cells deadlocks (https://github.com/golang/geo/issues/67).
-	t.Skip("deadlocks; see https://github.com/golang/geo/issues/67")
-
 	// Enough edges in a small area that the index subdivides below the face cells, so that later updates have to combine new edges with existing index cells.
 	a := makePolyline("0:0, 0:1, 1:1, 1:0, 0:0, 0.5:0.5, 0.2:0.8, 0.8:0.2, 0.3:0.3, 0.7:0.7, 0.1:0.9, 0.9:0.1, 0.4:0.6, 0.6:0.4, 0.25:0.75")
 	b := makeLoop("0.05:0.05, 0.05:0.95, 0.95:0.95, 0.95:0.05")
@@ -653,9 +650,6 @@ func TestShapeIndexUpdateAfterBuild(t *testing.T) {
 }
 
 func TestShapeIndexSimpleUpdates(t *testing.T) {
-	// TODO(jmr): Updating an index that already has cells deadlocks (https://github.com/golang/geo/issues/67).
-	t.Skip("deadlocks; see https://github.com/golang/geo/issues/67")
-
 	// Add 5 loops one at a time, then remove them one at a time, validating the index at each step.
 	polygon := concentricLoopsPolygon(PointFromCoords(1, 0, 0), 5, 20)
 	index := NewShapeIndex()
@@ -670,9 +664,6 @@ func TestShapeIndexSimpleUpdates(t *testing.T) {
 }
 
 func TestShapeIndexAddRemoveShapeContainingTrackerOrigin(t *testing.T) {
-	// TODO(jmr): Updating an index that already has cells deadlocks (https://github.com/golang/geo/issues/67).
-	t.Skip("deadlocks; see https://github.com/golang/geo/issues/67")
-
 	// Add a shape that contains the tracker origin.
 	index := NewShapeIndex()
 	loop := RegularLoop(trackerOrigin(), s1.Angle(1)*s1.Degree, 10)
@@ -688,9 +679,6 @@ func TestShapeIndexAddRemoveShapeContainingTrackerOrigin(t *testing.T) {
 }
 
 func TestShapeIndexRandomUpdates(t *testing.T) {
-	// TODO(jmr): Updating an index that already has cells deadlocks (https://github.com/golang/geo/issues/67).
-	t.Skip("deadlocks; see https://github.com/golang/geo/issues/67")
-
 	// Ported from C++ MutableS2ShapeIndexTest.RandomUpdates, except:
 	//  - C++ sets the temporary memory budget so that at least one shape is split into multiple update batches.
 	//    Go doesn't split updates into batches.
@@ -795,5 +783,29 @@ func TestTrackerSaveAndRestoreStateBefore(t *testing.T) {
 	}
 	if !tr.isActive {
 		t.Errorf("after restoreStateBefore(5), isActive = false, want true")
+	}
+}
+
+func TestMergeCellIDs(t *testing.T) {
+	// mergeCellIDs only compares the IDs, so they don't need to be valid cells.
+	tests := []struct {
+		old, removed, added, want []CellID
+	}{
+		{nil, nil, nil, nil},
+		{nil, nil, []CellID{5, 1, 3}, []CellID{1, 3, 5}},
+		{[]CellID{1, 3, 5}, nil, nil, []CellID{1, 3, 5}},
+		{[]CellID{1, 3, 5}, []CellID{5, 1}, nil, []CellID{3}},
+		{[]CellID{1, 3, 5}, []CellID{1, 3, 5}, nil, []CellID{}},
+		{[]CellID{3, 7}, nil, []CellID{9, 1, 5}, []CellID{1, 3, 5, 7, 9}},
+		// 3 is removed and added again (replaced); 4 replaces 5.
+		{[]CellID{1, 3, 5, 7}, []CellID{5, 3}, []CellID{4, 3}, []CellID{1, 3, 4, 7}},
+	}
+	for _, test := range tests {
+		old := slices.Clone(test.old)
+		removed := slices.Clone(test.removed)
+		added := slices.Clone(test.added)
+		if got := mergeCellIDs(old, removed, added); !slices.Equal(got, test.want) {
+			t.Errorf("mergeCellIDs(%v, %v, %v) = %v, want %v", test.old, test.removed, test.added, got, test.want)
+		}
 	}
 }

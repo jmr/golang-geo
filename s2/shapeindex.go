@@ -603,6 +603,11 @@ type ShapeIndex struct {
 	// Track the ordered list of cell IDs.
 	cells []CellID
 
+	// During an update, cells keeps the cells that existed before the update, so that it stays sorted for the iterators used to find existing cells.
+	// Cells added and removed by the update are recorded here and merged into cells when the update finishes.
+	addedCells   []CellID
+	removedCells []CellID
+
 	// The current status of the index; accessed atomically.
 	status int32
 
@@ -688,6 +693,8 @@ func (s *ShapeIndex) Reset() {
 	s.nextID = 0
 	s.cellMap = make(map[CellID]*ShapeIndexCell)
 	s.cells = nil
+	s.addedCells = nil
+	s.removedCells = nil
 	s.pendingAdditionsPos = 0
 	s.pendingRemovals = nil
 	atomic.StoreInt32(&s.status, fresh)
@@ -862,6 +869,10 @@ func (s *ShapeIndex) applyUpdatesInternal() {
 		s.updateFaceEdges(face, allEdges[face], t)
 	}
 
+	s.cells = mergeCellIDs(s.cells, s.removedCells, s.addedCells)
+	s.addedCells = nil
+	s.removedCells = nil
+
 	s.pendingRemovals = s.pendingRemovals[:0]
 	s.pendingAdditionsPos = s.nextID
 	// It is the caller's responsibility to update the index status.
@@ -982,7 +993,8 @@ func (s *ShapeIndex) shrinkToFit(pcell *PaddedCell, bound r2.Rect) CellID {
 	if !s.isFirstUpdate() && shrunkID != pcell.CellID() {
 		// Don't shrink any smaller than the existing index cells, since we need
 		// to combine the new edges with those cells.
-		iter := s.Iterator()
+		// Use an iterator that doesn't apply pending updates, since we are in the middle of applying them (C++ uses InitStale).
+		iter := NewShapeIndexIterator(s)
 		if iter.LocateCellID(shrunkID) == Indexed {
 			shrunkID = iter.CellID()
 		}
@@ -1036,7 +1048,8 @@ func (s *ShapeIndex) updateEdges(pcell *PaddedCell, edges []*clippedEdge, t *tra
 		// There may be existing index cells contained inside pcell. If we
 		// encounter such a cell, we need to combine the edges being updated with
 		// the existing cell contents by absorbing the cell.
-		iter := s.Iterator()
+		// Use an iterator that doesn't apply pending updates, since we are in the middle of applying them (C++ uses InitStale).
+		iter := NewShapeIndexIterator(s)
 		r := iter.LocateCellID(pcell.id)
 		switch r {
 		case Disjoint:
@@ -1148,6 +1161,35 @@ func (s *ShapeIndex) updateEdges(pcell *PaddedCell, edges []*clippedEdge, t *tra
 	}
 }
 
+// mergeCellIDs returns the sorted cell IDs in old that are not in removed, plus the cell IDs in added.
+// old must be sorted. If an ID is in both removed and added, the cell was replaced, and it appears once in the result.
+func mergeCellIDs(old, removed, added []CellID) []CellID {
+	if len(removed) == 0 && len(old) == 0 {
+		// First update: nothing to merge.
+		slices.Sort(added)
+		return added
+	}
+	slices.Sort(removed)
+	slices.Sort(added)
+	result := make([]CellID, 0, len(old)-len(removed)+len(added))
+	i, j := 0, 0 // Positions in removed and added.
+	for _, id := range old {
+		for i < len(removed) && removed[i] < id {
+			i++
+		}
+		if i < len(removed) && removed[i] == id {
+			i++
+			continue
+		}
+		for j < len(added) && added[j] < id {
+			result = append(result, added[j])
+			j++
+		}
+		result = append(result, id)
+	}
+	return append(result, added[j:]...)
+}
+
 // makeIndexCell builds an indexCell from the given padded cell and set of edges and adds
 // it to the index. If the cell or edges are empty, no cell is added.
 func (s *ShapeIndex) makeIndexCell(p *PaddedCell, edges []*clippedEdge, t *tracker) bool {
@@ -1254,7 +1296,7 @@ func (s *ShapeIndex) makeIndexCell(p *PaddedCell, edges []*clippedEdge, t *track
 
 	// Add this cell to the map.
 	s.cellMap[p.id] = cell
-	s.cells = append(s.cells, p.id)
+	s.addedCells = append(s.addedCells, p.id)
 
 	// Shift the tracker focus point to the exit vertex of this cell.
 	if t.isActive && len(edges) != 0 {
@@ -1487,6 +1529,7 @@ func (s *ShapeIndex) absorbIndexCell(p *PaddedCell, iter *ShapeIndexIterator, ed
 
 	// Delete this cell from the index and return the updated edge list.
 	delete(s.cellMap, p.id)
+	s.removedCells = append(s.removedCells, p.id)
 	return newEdges
 }
 
